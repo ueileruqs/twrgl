@@ -1,11 +1,182 @@
 
-```js
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8" />
+  <title>Coleta de tempo de ocupação de pista</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <style>
+    .autocomplete-list {
+      position: absolute;
+      background: #fff;
+      border: 1px solid #d1d5db;
+      z-index: 50;
+      max-height: 180px;
+      overflow-y: auto;
+      min-width: 90px;
+      width: 100%;
+      box-shadow: 0 2px 8px #0002;
+    }
+    .autocomplete-item {
+      padding: 4px 12px;
+      cursor: pointer;
+      font-size: 0.94rem;
+    }
+    .autocomplete-item-active,
+    .autocomplete-item:hover {
+      background: #f1f5f9;
+    }
+  </style>
+</head>
+<body class="bg-gray-100 min-h-screen w-full">
+  <div class="w-full min-h-screen flex flex-col">
+    <h1 class="text-2xl font-bold text-center p-3">Coleta de tempo de ocupação de pista</h1>
+    <div class="flex flex-col lg:flex-row gap-6 w-full flex-1">
+      <!-- Planilha POUSOS -->
+      <div class="flex-1 bg-white rounded-xl shadow p-2 md:p-6 flex flex-col overflow-hidden">
+        <div class="text-center font-semibold mb-2">POUSOS</div>
+        <div class="overflow-x-auto rounded flex-1 flex flex-col">
+          <div id="planilha1" class="flex-1"></div>
+          <div class="mt-2 text-center">
+            <button id="addLinhaBtn1" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-800 transition" type="button">Adicionar 100 Linhas</button>
+            <button id="exportBtn1" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-800 transition ml-1" type="button">Exportar para Excel</button>
+          </div>
+        </div>
+      </div>
+      <!-- Planilha DECOLAGENS -->
+      <div class="flex-1 bg-white rounded-xl shadow p-2 md:p-6 flex flex-col overflow-hidden">
+        <div class="text-center font-semibold mb-2">DECOLAGENS</div>
+        <div class="overflow-x-auto rounded flex-1 flex flex-col">
+          <div id="planilha2" class="flex-1"></div>
+          <div class="mt-2 text-center">
+            <button id="addLinhaBtn2" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-800 transition" type="button">Adicionar 100 Linhas</button>
+            <button id="exportBtn2" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-800 transition ml-1" type="button">Exportar para Excel</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+<script>
+// Dados globais e funções comuns
+const callsignToICAO = {
+  "GLO1234": "B738", "TAM3456": "A320", "AZU998":  "E195", "PTABC":   "C172", "PRXYZ":   "SR22", 
+  "FAB2901": "B762", "FAB2401": "E99",  "GLO4321": "B738", "PTDEF":   "PA28", "TAM1122": "A321"
+};
+const aeroportosICAO = [
+  "SBCF","SBGL","SBGR","SBKP","SBSP","SBPA","SBRF","SBCT","SBSV","SBFL","SBSJ","SBVT","SBMQ","SBEG",
+  "SBRJ","SBPK","SBGO","SBPV","SBMS","SBAR","SBFZ","SBMA","SBSL","SBPV","SBBE","SBCY","SBSR","SBMG","SBME",
+  "SBGF","SBMO","SBJP","SBMO","SBTB","SBUL","SBPK","SBTE","SBSN","SBUR","SBCZ","SBCH","SBCJ","SBIZ",
+  "SBOI","SBCR","SBPL","SBPN","SBSO","SBTV","SBPB","SBUG","SBUF","SBJI","SBJU","SBMH","SBPB","SBST","SBPG",
+  "SBJV","SBAN","SBDN","SBPP","SBSC","SBTF","SDAM","SDCO","SNAX","SBPS","SBMY","SBTT","SBAA","SBMN","SBML",
+  "SBMT","SBPK","SBHK","SBTU","SBAE","SBEN","SBPC","SBMD","SBIH","SBPM","SBRA","SBPG","SBMK","SBFE","SBJV",
+  "SBPB","SBRB","SBUY","SBSG","SBVC","SBJH","SBMQ","SBCX","SBTT","SBTE","SBMO","SBCG","SBJA","SBSV","SBMT",
+  "SBCA","SBAU","SBJD","SBJT","SBMS","SBRE","SBWL","SDAG","SDMC","SDSC","SDVG","SNSI","SNGI","SNVB","SSER",
+  "SWEI","SBJR","SBSP","SBGL","SBGR","SBKP","SBFL"
+];
+
+function getBRDateTime() {
+  const now = new Date();
+  const dd = String(now.getDate()).padStart(2, '0');
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const yyyy = now.getFullYear();
+  const hh = String(now.getHours()).padStart(2, '0');
+  const min = String(now.getMinutes()).padStart(2, '0');
+  const ss = String(now.getSeconds()).padStart(2, '0');
+  return `${dd}/${mm}/${yyyy} ${hh}:${min}:${ss}`;
+}
+
+function makeAutocomplete(input, list) {
+  let currentFocus = -1;
+  let container = null;
+  function closeList() {
+    if (container) {
+      container.parentNode.removeChild(container);
+      container = null;
+    }
+  }
+  input.addEventListener("input", function () {
+    closeList();
+    const val = this.value.trim().toUpperCase();
+    if (!val) return;
+    container = document.createElement("div");
+    container.setAttribute("class", "autocomplete-list");
+    container.style.top = (input.offsetHeight+2) + "px";
+    input.parentNode.style.position = 'relative';
+    input.parentNode.appendChild(container);
+    let shown = 0;
+    for (const code of list) {
+      if (code.indexOf(val) === 0) {
+        const item = document.createElement("div");
+        item.innerHTML = `<span class="font-bold">${code.substr(0, val.length)}</span><span>${code.substr(val.length)}</span>`;
+        item.className = "autocomplete-item";
+        item.onclick = function () {
+          input.value = code;
+          closeList();
+          input.blur();
+          saveDataGlobal();
+        };
+        container.appendChild(item);
+        shown++;
+        if (shown >= 20) break;
+      }
+    }
+    if (shown === 0) {
+      const item = document.createElement("div");
+      item.innerHTML = `<span class="text-gray-400">Sem resultados</span>`;
+      item.className = "autocomplete-item cursor-default";
+      item.onclick = e=>e.stopPropagation();
+      container.appendChild(item);
+    }
+  });
+  input.addEventListener("keydown", function(e) {
+    if (!container) return;
+    let items = container.querySelectorAll(".autocomplete-item");
+    if (items.length === 0) return;
+    if (e.key === "ArrowDown") {
+      currentFocus++;
+      if (currentFocus >= items.length) currentFocus = 0;
+      setActive(items);
+    }
+    else if (e.key === "ArrowUp") {
+      currentFocus--;
+      if (currentFocus < 0) currentFocus = items.length - 1;
+      setActive(items);
+    }
+    else if (e.key === "Enter") {
+      e.preventDefault();
+      if (currentFocus > -1 && items[currentFocus]) {
+        items[currentFocus].click();
+      }
+      closeList();
+    }
+    else {
+      currentFocus = -1;
+    }
+  });
+  input.addEventListener("blur", function() {
+    setTimeout(closeList, 100);
+  });
+  function setActive(items) {
+    for (let i = 0; i < items.length; i++)
+      items[i].classList.remove("autocomplete-item-active");
+    if (currentFocus >= 0 && currentFocus < items.length)
+      items[currentFocus].classList.add("autocomplete-item-active");
+  }
+}
+
+let globalSaveFunctions = [];
+
+function saveDataGlobal() {
+  globalSaveFunctions.forEach(fn => fn());
+}
+
 function createPlanilha(containerId, addBtnId, exportBtnId, exportFilename, isDecolagens = false) {
   let headers = [
     "INDICATIVO", "TIPO AERONAVE (ICAO)", "RWY ARR", "ORIGEM",
     "PASSOU FAF", "PASSOU CAB", "2400 M", "LIBEROU PISTA", "TWY", "OBSERVAÇÕES"
   ];
-
   if (isDecolagens) {
     headers = [
       "INDICATIVO", "TIPO AERONAVE (ICAO)", "RWY DEP", "DESTINO",
@@ -13,13 +184,10 @@ function createPlanilha(containerId, addBtnId, exportBtnId, exportFilename, isDe
       "CRUZOU CAB OPOSTA", "INICIOU CURVA", "PONTO CLR DEP", "OBSERVAÇÕES"
     ];
   }
-
   const localStorageKey = "dados_planilha_" + exportFilename;
-
   const conta = document.getElementById(containerId);
   const addLinhaBtn = document.getElementById(addBtnId);
   const exportBtn = document.getElementById(exportBtnId);
-
   conta.innerHTML = `
     <div class="overflow-x-auto rounded">
       <table class="w-full table-fixed border bg-white text-sm relative">
@@ -44,9 +212,7 @@ function createPlanilha(containerId, addBtnId, exportBtnId, exportFilename, isDe
       </ul>
     </div>
   `;
-
   const tbody = conta.querySelector("tbody");
-
   function saveData() {
     const rows = Array.from(tbody.getElementsByTagName('tr'));
     const result = [];
@@ -56,7 +222,6 @@ function createPlanilha(containerId, addBtnId, exportBtnId, exportFilename, isDe
         if (isDecolagens && idx === 10) {
           return cell.querySelector('select').value;
         } else if (idx === 2) {
-          // RWY select for both tables
           return cell.querySelector('select').value;
         } else if (isDecolagens && idx === 11) {
           return cell.querySelector('input').value;
@@ -68,14 +233,12 @@ function createPlanilha(containerId, addBtnId, exportBtnId, exportFilename, isDe
     });
     localStorage.setItem(localStorageKey, JSON.stringify(result));
   }
-
   function loadData() {
     const saved = localStorage.getItem(localStorageKey);
     if (saved) {
       try {
         const dataArray = JSON.parse(saved);
         if (Array.isArray(dataArray)) {
-          // Limpa existente
           tbody.innerHTML = "";
           dataArray.forEach(dataRow => {
             addRow(dataRow);
@@ -88,11 +251,8 @@ function createPlanilha(containerId, addBtnId, exportBtnId, exportFilename, isDe
     }
     return false;
   }
-
   function addRow(data = Array(headers.length).fill("")) {
     const row = document.createElement('tr');
-
-    // Cria as células e inputs como antes (resumo para não alongar)
     // INDICATIVO
     const indicativoCell = document.createElement('td');
     indicativoCell.className = "border px-2 py-1";
@@ -101,19 +261,15 @@ function createPlanilha(containerId, addBtnId, exportBtnId, exportFilename, isDe
     indicativoInput.value = data[0] || "";
     indicativoInput.className = "w-full p-1 border-none outline-none bg-transparent uppercase";
     indicativoInput.onblur = checkAndFillType;
-    indicativoInput.oninput = checkAndFillType;
-    indicativoInput.oninput = saveData; // salva ao digitar
+    indicativoInput.oninput = e => { checkAndFillType(); saveData(); };
     indicativoCell.appendChild(indicativoInput);
-
     function checkAndFillType() {
       const val = indicativoInput.value.trim().toUpperCase();
       indicativoInput.value = val;
       if (!tipoInput.value.trim()) {
         tipoInput.value = callsignToICAO[val] || "";
       }
-      saveData();
     }
-
     // TIPO AERONAVE (ICAO)
     const tipoCell = document.createElement('td');
     tipoCell.className = "border px-2 py-1";
@@ -123,10 +279,8 @@ function createPlanilha(containerId, addBtnId, exportBtnId, exportFilename, isDe
     tipoInput.className = "w-full p-1 border-none outline-none bg-transparent";
     tipoInput.oninput = saveData;
     tipoCell.appendChild(tipoInput);
-
     row.appendChild(indicativoCell);
     row.appendChild(tipoCell);
-
     // RWY select
     const rwyCell = document.createElement('td');
     rwyCell.className = "border px-2 py-1";
@@ -143,7 +297,6 @@ function createPlanilha(containerId, addBtnId, exportBtnId, exportFilename, isDe
     rwySelect.onchange = saveData;
     rwyCell.appendChild(rwySelect);
     row.appendChild(rwyCell);
-
     // ORIGEM / DESTINO autocomplete input
     const origemDestinoCell = document.createElement('td');
     origemDestinoCell.className = "border px-2 py-1 relative";
@@ -161,9 +314,7 @@ function createPlanilha(containerId, addBtnId, exportBtnId, exportFilename, isDe
     origemDestinoInput.oninput = saveData;
     origemDestinoCell.appendChild(origemDestinoInput);
     row.appendChild(origemDestinoCell);
-
     if (!isDecolagens) {
-      // POUSOS campos 4 a 8 inputs com duplo clique pra data/hora e 9 sem duplo clique
       for (let i = 4; i <= 8; i++) {
         const cell = document.createElement('td');
         cell.className = "border px-2 py-1";
@@ -190,7 +341,6 @@ function createPlanilha(containerId, addBtnId, exportBtnId, exportFilename, isDe
       obsCell.appendChild(obsInput);
       row.appendChild(obsCell);
     } else {
-      // DECOLAGENS campos 4 a 9 inputs, 10 select, 11 input obs
       const createDCellWithDate = (val) => {
         const cell = document.createElement('td');
         cell.className = "border px-2 py-1";
@@ -213,8 +363,6 @@ function createPlanilha(containerId, addBtnId, exportBtnId, exportFilename, isDe
       row.appendChild(createDCellWithDate(data[7]));
       row.appendChild(createDCellWithDate(data[8]));
       row.appendChild(createDCellWithDate(data[9]));
-
-      // PONTO CLR DEP select
       const pontoClrDepCell = document.createElement('td');
       pontoClrDepCell.className = "border px-2 py-1";
       const pontoClrDepSelect = document.createElement('select');
@@ -224,13 +372,11 @@ function createPlanilha(containerId, addBtnId, exportBtnId, exportFilename, isDe
         opt.value = optVal;
         opt.innerText = optVal;
         if(data[10] === optVal) opt.selected = true;
-      pontoClrDepSelect.appendChild(opt);
+        pontoClrDepSelect.appendChild(opt);
       });
       pontoClrDepSelect.onchange = saveData;
       pontoClrDepCell.appendChild(pontoClrDepSelect);
       row.appendChild(pontoClrDepCell);
-
-      // OBSERVAÇÕES
       const obsCell = document.createElement('td');
       obsCell.className = "border px-2 py-1";
       const obsInput = document.createElement('input');
@@ -241,16 +387,12 @@ function createPlanilha(containerId, addBtnId, exportBtnId, exportFilename, isDe
       obsCell.appendChild(obsInput);
       row.appendChild(obsCell);
     }
-
     tbody.appendChild(row);
     return row;
   }
-
-  // Ao carregar, tenta carregar do localStorage, senão cria 60 linhas vazias
   if (!loadData()) {
     for(let i=0; i<60; i++) addRow();
   }
-
   addLinhaBtn.onclick = () => {
     let firstNewRow = null;
     for(let i=0; i<100; i++) {
@@ -260,31 +402,10 @@ function createPlanilha(containerId, addBtnId, exportBtnId, exportFilename, isDe
     if(firstNewRow) firstNewRow.scrollIntoView({behavior:'smooth', block:'nearest'});
     saveData();
   };
-
-  exportBtn.onclick = function() {
-    const rows = Array.from(tbody.getElementsByTagName('tr'));
-    const result = [headers];
-    rows.forEach(row => {
-      const cells = Array.from(row.getElementsByTagName('td'));
-      const rowData = cells.map((cell, idx) => {
-        if (isDecolagens && idx === 10) {
-          return cell.querySelector('select').value;
-        }
-        else if (idx === 2) {
-          return cell.querySelector('select').value;
-        } else if (isDecolagens && idx === 11) {
-          return cell.querySelector('input').value;
-        } else {
-          return cell.querySelector('input').value;
-        }
-      });
-      result.push(rowData);
-    });
-
-    const ws = XLSX.utils.aoa_to_sheet(result);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, exportFilename);
-    XLSX.writeFile(wb, exportFilename + ".xlsx");
-  };
 }
-```
+
+createPlanilha("planilha1", "addLinhaBtn1", "exportBtn1", "POUSOS", false);
+createPlanilha("planilha2", "addLinhaBtn2", "exportBtn2", "DECOLAGENS", true);
+</script>
+</body>
+</html>
