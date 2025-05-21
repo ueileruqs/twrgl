@@ -61,7 +61,7 @@
 <script>
 // Dados globais e funções comuns
 const callsignToICAO = {
-  "GLO1234": "B738", "TAM3456": "A320", "AZU998":  "E195", "PTABC":   "C172", "PRXYZ":   "SR22", 
+  "GLO1234": "B738", "TAM3456": "A320", "AZU998":  "E195", "PTABC":   "C172", "PRXYZ":   "SR22",
   "FAB2901": "B762", "FAB2401": "E99",  "GLO4321": "B738", "PTDEF":   "PA28", "TAM1122": "A321"
 };
 const aeroportosICAO = [
@@ -172,6 +172,14 @@ function saveDataGlobal() {
   globalSaveFunctions.forEach(fn => fn());
 }
 
+function exportTableToExcel(table, filename) {
+  const wb = XLSX.utils.book_new();
+  // Extract table data including headers
+  const ws = XLSX.utils.table_to_sheet(table);
+  XLSX.utils.book_append_sheet(wb, ws, "Dados");
+  XLSX.writeFile(wb, filename + ".xlsx");
+}
+
 function createPlanilha(containerId, addBtnId, exportBtnId, exportFilename, isDecolagens = false) {
   let headers = [
     "INDICATIVO", "TIPO AERONAVE (ICAO)", "RWY ARR", "ORIGEM",
@@ -190,7 +198,7 @@ function createPlanilha(containerId, addBtnId, exportBtnId, exportFilename, isDe
   const exportBtn = document.getElementById(exportBtnId);
   conta.innerHTML = `
     <div class="overflow-x-auto rounded">
-      <table class="w-full table-fixed border bg-white text-sm relative">
+      <table id="${containerId}_table" class="w-full table-fixed border bg-white text-sm relative">
         <colgroup>
           ${headers.map(() => `<col class="min-w-[90px]" />`).join("\n")}
         </colgroup>
@@ -402,10 +410,39 @@ function createPlanilha(containerId, addBtnId, exportBtnId, exportFilename, isDe
     if(firstNewRow) firstNewRow.scrollIntoView({behavior:'smooth', block:'nearest'});
     saveData();
   };
+  exportBtn.onclick = () => {
+    const table = conta.querySelector("table");
+    exportTableToExcel(table, exportFilename);
+  };
+  globalSaveFunctions.push(saveData);
 }
 
 createPlanilha("planilha1", "addLinhaBtn1", "exportBtn1", "POUSOS", false);
 createPlanilha("planilha2", "addLinhaBtn2", "exportBtn2", "DECOLAGENS", true);
 </script>
-</body>
+<script>window.parent.postMessage({ action: "ready" }, "*"); 
+ 
+window.console = new Proxy(console, {
+  get(target, prop) {
+    if (['log', 'warn', 'error'].includes(prop)) {
+      return new Proxy(target[prop], {
+        apply(fn, thisArg, args) {
+          fn.apply(thisArg, args);
+          window.parent.postMessage({ action: 'console', 
+            type: prop, 
+            args: args.map((arg) => {
+              try {
+                return JSON.stringify(arg).replace(/^["']|["']$/g, '');
+              } catch (e) {
+                return arg;
+              }
+            }) 
+          }, '*');
+        }
+      });
+    }
+    return target[prop];
+  }
+});
+</script></body>
 </html>
